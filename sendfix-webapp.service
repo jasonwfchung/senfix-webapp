@@ -1,0 +1,21 @@
+[Unit]
+Description=SendFix Multi-Session Web Application
+After=network.target
+
+[Service]
+Type=simple
+User=sendfix
+Group=sendfix
+WorkingDirectory=/opt/sendfix-webapp
+Environment=PATH=/opt/sendfix-webapp/venv/bin
+Environment=FLASK_ENV=production
+ExecStartPre=/bin/mkdir -p /opt/sendfix-webapp/logs
+ExecStartPre=/bin/mkdir -p /opt/sendfix-webapp/store
+ExecStart=/opt/sendfix-webapp/venv/bin/gunicorn --config gunicorn_config.py wsgi:application
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

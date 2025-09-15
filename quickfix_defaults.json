@@ -1,0 +1,22 @@
+{
+  "ConnectionType": "initiator",
+  "ReconnectInterval": "60",
+  "FileStorePath": "store",
+  "FileLogPath": "log",
+  "StartTime": "00:00:00",
+  "EndTime": "00:00:00",
+  "UseDataDictionary": "N",
+  "DefaultApplVerID": "FIX.4.2",
+  "SendRedundantResendRequests": "N",
+  "ResetOnLogon": "N",
+  "ResetOnLogout": "N",
+  "ResetOnDisconnect": "N",
+  "ValidateUserDefinedFields": "N",
+  "ValidateFieldsOutOfOrder": "N",
+  "ValidateFieldsHaveValues": "N",
+  "CheckCompID": "Y",
+  "CheckLatency": "Y",
+  "MaxLatency": "120",
+  "LogonTimeout": "10",
+  "LogoutTimeout": "2"
+}

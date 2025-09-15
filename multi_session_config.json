@@ -1,0 +1,49 @@
+{
+  "sessions": [
+    {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "LQNT UAT HK PHX",
+      "port": 5731,
+      "sender_comp_id": "JCHUNG",
+      "server_ip": "hk1qvphxcrt01",
+      "target_comp_id": "LQNTHKUAT"
+    },
+    {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "ASIATEST5_SLP",
+      "port": 5655,
+      "sender_comp_id": "ASIATEST5",
+      "server_ip": "hk1pvstaslp01",
+      "target_comp_id": "LQNT"
+    },
+    {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "TESTING",
+      "port": 5655,
+      "sender_comp_id": "TEST",
+      "server_ip": "hk1pvstaslp01",
+      "target_comp_id": "LQNT"
+    },
+    {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "EXODUS_UAT_HKPHX",
+      "port": 5630,
+      "sender_comp_id": "EXODUSUAT",
+      "server_ip": "hk1qvphxcrt01",
+      "target_comp_id": "LQNTHKUAT"
+    },
+    {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "INITIATOR",
+      "port": 8889,
+      "sender_comp_id": "EFGH",
+      "server_ip": "uk1pvpsauto01",
+      "target_comp_id": "ABCD"
+    }
+  ]
+}

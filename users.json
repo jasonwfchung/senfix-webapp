@@ -1,0 +1,16 @@
+{
+  "users": {
+    "admin": {
+      "password": "admin123",
+      "role": "administrator"
+    },
+    "trader1": {
+      "password": "trader123",
+      "role": "trader"
+    },
+    "jchung": {
+      "password": "jchung123",
+      "role": "trader"
+    }
+  }
+}

@@ -1,0 +1,1109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SendFix - Multi-Session Web Client</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f5f5f5; }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { background: #2c3e50; color: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .panel { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .session-panel { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
+        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+        .form-group { display: flex; flex-direction: column; }
+        .form-group label { font-weight: bold; margin-bottom: 5px; }
+        .form-group input, .form-group select { padding: 8px; border: 1px solid #ddd; border-radius: 4px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .btn-primary { background: #3498db; color: white; }
+        .btn-success { background: #27ae60; color: white; }
+        .btn-danger { background: #e74c3c; color: white; }
+        .btn-warning { background: #f39c12; color: white; }
+        .btn:hover { opacity: 0.8; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .status { padding: 8px 15px; border-radius: 4px; font-weight: bold; }
+        .status-connected { background: #d4edda; color: #155724; }
+        .status-disconnected { background: #f8d7da; color: #721c24; }
+        .status-connecting { background: #fff3cd; color: #856404; }
+        .orders-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .orders-table th, .orders-table td { padding: 8px; border: 1px solid #ddd; text-align: left; }
+        .orders-table th { background: #f8f9fa; font-weight: bold; }
+        .orders-table tr:hover { background: #f8f9fa; }
+        .log-container { height: 300px; overflow-y: auto; background: #f8f9fa; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 12px; }
+        .button-group { display: flex; gap: 10px; margin-top: 15px; }
+        .selected-order { background: #e3f2fd !important; }
+        .tab-nav { display: flex; margin-bottom: 20px; border-bottom: 2px solid #ddd; }
+        .tab-btn { padding: 10px 20px; border: none; background: none; cursor: pointer; font-weight: bold; border-bottom: 2px solid transparent; }
+        .tab-btn.active { border-bottom-color: #3498db; color: #3498db; }
+        .tab-btn:hover { background: #f8f9fa; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        .command-section { margin-bottom: 25px; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        .command-section h4 { margin-top: 0; color: #2c3e50; }
+        .command-section textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; }
+        .command-section .btn { margin-top: 10px; }
+        .command-section input[type="file"] { display: none; }
+        .command-section .form-group { margin-bottom: 15px; }
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); }
+        .modal-content { background-color: white; margin: 5% auto; padding: 0; border-radius: 8px; width: 80%; max-width: 800px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .modal-header { padding: 20px; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center; }
+        .modal-header h3 { margin: 0; }
+        .close { font-size: 28px; font-weight: bold; cursor: pointer; }
+        .close:hover { color: #e74c3c; }
+        .modal-body { padding: 20px; }
+        .modal-body textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-family: monospace; font-size: 14px; }
+        .modal-footer { padding: 20px; border-top: 1px solid #ddd; text-align: right; }
+        .modal-footer .btn { margin-left: 10px; }
+        .btn-secondary { background: #6c757d; color: white; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h1>SendFix - Multi-Session Web Client</h1>
+                    <p>Liquidnet FIX Protocol Trading Interface</p>
+                </div>
+                <div style="text-align: right; color: #ecf0f1;">
+                    <div style="margin-bottom: 10px;">
+                        <button class="btn btn-warning" onclick="loadConfig()" style="margin-right: 10px;">Load Config</button>
+                        <button class="btn btn-danger" onclick="restartServer()">Restart Server</button>
+                    </div>
+                    <p>Welcome, <strong>{{ user }}</strong> ({{ role }})</p>
+                    <a href="/logout" style="color: #ecf0f1; text-decoration: underline;">Logout</a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Session Management -->
+        <div class="panel">
+            <h3>Session Management</h3>
+            <div class="session-panel">
+                <select id="sessionSelect">
+                    <option value="">Select Session...</option>
+                </select>
+                <button id="connectBtn" class="btn btn-success">Connect</button>
+                <button id="disconnectBtn" class="btn btn-danger" disabled>Disconnect</button>
+                <button id="showAllBtn" class="btn btn-primary">Show All Sessions</button>
+                <div id="sessionStatus" class="status status-disconnected">Not Connected</div>
+            </div>
+            
+            <!-- Sequence Management -->
+            <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+                <div style="display: flex; gap: 15px; align-items: center; flex-wrap: wrap;">
+                    <label>Incoming Seq:</label>
+                    <input type="number" id="incomingSeq" value="1" style="width: 80px; padding: 5px;">
+                    <label>Outgoing Seq:</label>
+                    <input type="number" id="outgoingSeq" value="1" style="width: 80px; padding: 5px;">
+                    <button class="btn btn-warning" onclick="setSequenceNumbers()">Set Sequence Numbers</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Order Composer -->
+        <div class="panel">
+            <h3>Order Composer</h3>
+            
+            <!-- Tab Navigation -->
+            <div class="tab-nav">
+                <button class="tab-btn active" onclick="switchTab('form')">Order Form</button>
+                <button class="tab-btn" onclick="switchTab('commands')">Commands</button>
+            </div>
+            
+            <!-- Order Form Tab -->
+            <div id="form-tab" class="tab-content active">
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Quantity:</label>
+                    <input type="number" id="qty" placeholder="1000">
+                </div>
+                <div class="form-group">
+                    <label>Side:</label>
+                    <select id="side">
+                        <option value="1">1 (Buy)</option>
+                        <option value="2">2 (Sell)</option>
+                        <option value="5">5 (Shortsell)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Symbol:</label>
+                    <input type="text" id="symbol" placeholder="AAPL">
+                </div>
+                <div class="form-group">
+                    <label>Order Type:</label>
+                    <select id="orderType">
+                        <option value="1" selected>1 (Market)</option>
+                        <option value="2">2 (Limit)</option>
+                        <option value="3">3 (Stop)</option>
+                        <option value="4">4 (Stop Limit)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Price:</label>
+                    <input type="number" step="0.01" id="price" placeholder="150.00">
+                </div>
+                <div class="form-group">
+                    <label>ID Source:</label>
+                    <select id="idsource">
+                        <option value="1">1 (CUSIP)</option>
+                        <option value="2">2 (SEDOL)</option>
+                        <option value="4">4 (ISIN)</option>
+                        <option value="5" selected>5 (RIC)</option>
+                        <option value="8">8 (Exchange Symbol)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Security ID:</label>
+                    <input type="text" id="secid" placeholder="AAPL">
+                </div>
+                <div class="form-group">
+                    <label>Sender Sub ID:</label>
+                    <input type="text" id="sendersubid" placeholder="Tag50">
+                </div>
+                <div class="form-group">
+                    <label>Client ID:</label>
+                    <input type="text" id="clientid" placeholder="Tag109">
+                </div>
+                <div class="form-group">
+                    <label>Text:</label>
+                    <input type="text" id="text" placeholder="Tag58">
+                </div>
+                <div class="form-group">
+                    <label>Time In Force:</label>
+                    <select id="tif">
+                        <option value="0">0 (Day)</option>
+                        <option value="1">1 (GTC)</option>
+                        <option value="2">2 (OPG)</option>
+                        <option value="3">3 (IOC)</option>
+                        <option value="4">4 (FOK)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Custom Tags:</label>
+                    <input type="text" id="customTags" placeholder="9000=ABC|9001=XYZ">
+                </div>
+            </div>
+            <div class="button-group">
+                <button id="sendOrderBtn" class="btn btn-primary">Send Order</button>
+                <button id="replaceOrderBtn" class="btn btn-warning" disabled>Replace Order</button>
+                <button id="cancelOrderBtn" class="btn btn-danger" disabled>Cancel Order</button>
+                <button id="loadSampleBtn" class="btn btn-success">Load Sample</button>
+            </div>
+            </div>
+            
+            <!-- Commands Tab -->
+            <div id="commands-tab" class="tab-content">
+                <div class="command-section">
+                    <h4>Send Raw FIX Message</h4>
+                    <div class="form-group">
+                        <label>Raw FIX (pipe separated):</label>
+                        <input type="text" id="rawFixInput" placeholder="35=D|55=AAPL|54=1|38=1000|40=1|59=0">
+                        <button class="btn btn-primary" onclick="sendRawFix()">Send Raw FIX</button>
+                    </div>
+                </div>
+                
+                <div class="command-section">
+                    <h4>Send Custom Message</h4>
+                    <div class="form-group">
+                        <label>Custom Message (space separated):</label>
+                        <input type="text" id="customMsgInput" placeholder="35=D 55=AAPL 54=1 38=1000 40=1 59=0">
+                        <button class="btn btn-primary" onclick="sendCustomMessage()">Send Custom</button>
+                    </div>
+                </div>
+                
+                <div class="command-section">
+                    <h4>Bulk Orders from File</h4>
+                    <div class="form-group">
+                        <label>Load File:</label>
+                        <input type="file" id="fileInput" accept=".txt" onchange="loadFile()">
+                        <button class="btn btn-success" onclick="document.getElementById('fileInput').click()">Browse File</button>
+                    </div>
+                    <div class="form-group">
+                        <label>File Content:</label>
+                        <textarea id="bulkOrdersInput" rows="6" placeholder="54|22|48|38|40|207|15|109|59|
+1|5|0005.HK|20000|1|HK|HKD|HSBCGAM|0|
+2|5|0700.HK|30000|1|HK|HKD|HSBCGAM|0|"></textarea>
+                        <button class="btn btn-primary" onclick="sendBulkOrders()">Send Bulk Orders</button>
+                    </div>
+                </div>
+                
+                <div class="command-section">
+                    <h4>Quick Commands</h4>
+                    <div class="button-group">
+                        <button class="btn btn-success" onclick="sendHeartbeat()">Send Heartbeat</button>
+                        <button class="btn btn-warning" onclick="sendTestRequest()">Test Request</button>
+                        <button class="btn btn-danger" onclick="forceLogout()">Force Logout</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Order Management -->
+        <div class="panel">
+            <h3>Order Management</h3>
+            <table class="orders-table">
+                <thead>
+                    <tr>
+                        <th>ClOrdID</th>
+                        <th>OrderID</th>
+                        <th>Symbol</th>
+                        <th>Side</th>
+                        <th>Qty</th>
+                        <th>Price</th>
+                        <th>Status</th>
+                        <th>Session ID</th>
+                    </tr>
+                </thead>
+                <tbody id="ordersTable">
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Message Log -->
+        <div class="panel">
+            <h3>Message Log</h3>
+            <div id="logContainer" class="log-container"></div>
+        </div>
+        
+        <!-- Config Editor Modal -->
+        <div id="configModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Configuration Editor</h3>
+                    <span class="close" onclick="closeConfigModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <textarea id="configEditor" rows="20" placeholder="Loading configuration..."></textarea>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-success" onclick="saveConfig()">Save Config</button>
+                    <button class="btn btn-secondary" onclick="closeConfigModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let selectedOrder = null;
+        let sessions = [];
+        let currentSelectedSession = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadSessions();
+            loadUserSession();
+            loadSampleData();
+            setupEventListeners();
+        });
+        
+        function loadUserSession() {
+            fetch('/api/get_user_session')
+            .then(response => response.json())
+            .then(data => {
+                if (data.session_name) {
+                    const sessionSelect = document.getElementById('sessionSelect');
+                    // Find option by config name and select it
+                    for (let option of sessionSelect.options) {
+                        if (option.getAttribute('data-config-name') === data.session_name) {
+                            sessionSelect.value = option.value;
+                            break;
+                        }
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error loading user session:', error);
+            });
+        }
+
+        function setupEventListeners() {
+            document.getElementById('connectBtn').addEventListener('click', connectSession);
+            document.getElementById('disconnectBtn').addEventListener('click', disconnectSession);
+            document.getElementById('showAllBtn').addEventListener('click', showAllSessions);
+            document.getElementById('sendOrderBtn').addEventListener('click', sendOrder);
+            document.getElementById('replaceOrderBtn').addEventListener('click', replaceOrder);
+            document.getElementById('cancelOrderBtn').addEventListener('click', cancelOrder);
+            document.getElementById('loadSampleBtn').addEventListener('click', loadSampleData);
+            document.getElementById('sessionSelect').addEventListener('change', onSessionChange);
+        }
+
+        function loadSessions() {
+            fetch('/api/sessions')
+                .then(response => response.json())
+                .then(data => {
+                    sessions = data.sessions;
+                    const select = document.getElementById('sessionSelect');
+                    select.innerHTML = '<option value="">Select Session...</option>';
+                    
+                    data.sessions.forEach(session => {
+                        const option = document.createElement('option');
+                        // Use session_id as value for status matching
+                        option.value = session.session_id || session.name;
+                        // Show session_id as display text
+                        option.textContent = session.session_id || session.name;
+                        // Store config name as data attribute for connection
+                        option.setAttribute('data-config-name', session.name);
+                        select.appendChild(option);
+                    });
+                });
+        }
+
+        function onSessionChange() {
+            const sessionId = document.getElementById('sessionSelect').value;
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption ? selectedOption.getAttribute('data-config-name') : null;
+            
+            // Set user's selected session using config name
+            if (configName) {
+                fetch('/api/set_user_session', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_name: configName })
+                });
+            }
+            
+            // Clear stored session when changing selection
+            currentSelectedSession = null;
+            
+            if (!sessionId) {
+                updateSessionStatus('Not Connected', 'disconnected');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+                return;
+            }
+            
+            // Fetch fresh session status
+            fetch('/api/sessions')
+                .then(response => response.json())
+                .then(data => {
+                    sessions = data.sessions;
+                    const session = sessions.find(s => (s.session_id || s.name) === sessionId);
+                    if (session && session.connected) {
+                        updateSessionStatus('Connected', 'connected');
+                        document.getElementById('connectBtn').disabled = true;
+                        document.getElementById('disconnectBtn').disabled = false;
+                    } else {
+                        updateSessionStatus('Not Connected', 'disconnected');
+                        document.getElementById('connectBtn').disabled = false;
+                        document.getElementById('disconnectBtn').disabled = true;
+                    }
+                })
+                .catch(error => {
+                    updateSessionStatus('Not Connected', 'disconnected');
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                });
+        }
+
+        function connectSession() {
+            const sessionValue = document.getElementById('sessionSelect').value;
+            if (!sessionValue) {
+                alert('Please select a session');
+                return;
+            }
+
+            // Store the selected session
+            currentSelectedSession = sessionValue;
+            console.log('*** FRONTEND: Stored selected session:', currentSelectedSession);
+
+            // Get config name from selected option's data attribute
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+
+            updateSessionStatus('Connecting...', 'connecting');
+            document.getElementById('connectBtn').disabled = true;
+
+            fetch('/api/connect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: configName })
+            });
+        }
+
+        function disconnectSession() {
+            const sessionId = document.getElementById('sessionSelect').value;
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            fetch('/api/disconnect', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: configName })
+            })
+            .then(() => {
+                updateSessionStatus('Disconnected', 'disconnected');
+                document.getElementById('connectBtn').disabled = false;
+                document.getElementById('disconnectBtn').disabled = true;
+            });
+        }
+
+        function showAllSessions() {
+            fetch('/api/sessions')
+                .then(response => response.json())
+                .then(data => {
+                    // Update sessions array with fresh data
+                    sessions = data.sessions;
+                    
+                    let statusText = 'Session Status:\n\n';
+                    data.sessions.forEach(session => {
+                        const status = session.connected ? 'Connected' : 'Disconnected';
+                        const marker = session.connected ? '✓' : '✗';
+                        statusText += `${marker} ${session.name}: ${status}\n`;
+                    });
+                    alert(statusText);
+                    
+                    // Update current session status if one is selected
+                    const selectedSessionId = document.getElementById('sessionSelect').value;
+                    if (selectedSessionId) {
+                        const selectedSession = data.sessions.find(s => (s.session_id || s.name) === selectedSessionId);
+                        if (selectedSession) {
+                            if (selectedSession.connected) {
+                                updateSessionStatus('Connected', 'connected');
+                                document.getElementById('connectBtn').disabled = true;
+                                document.getElementById('disconnectBtn').disabled = false;
+                            } else {
+                                updateSessionStatus('Not Connected', 'disconnected');
+                                document.getElementById('connectBtn').disabled = false;
+                                document.getElementById('disconnectBtn').disabled = true;
+                            }
+                        }
+                    }
+                })
+                .catch(error => {
+                    alert('Error fetching session status: ' + error.message);
+                });
+        }
+
+        function sendOrder() {
+            console.log('DEBUG: sendOrder function called');
+            
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            // Get config name for API calls
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            const orderData = {
+                session_name: configName,
+                qty: document.getElementById('qty').value,
+                side: document.getElementById('side').value,
+                symbol: document.getElementById('symbol').value,
+                order_type: document.getElementById('orderType').value,
+                price: document.getElementById('price').value,
+                idsource: document.getElementById('idsource').value,
+                secid: document.getElementById('secid').value,
+                sendersubid: document.getElementById('sendersubid').value,
+                clientid: document.getElementById('clientid').value,
+                text: document.getElementById('text').value,
+                tif: document.getElementById('tif').value,
+                custom_tags: document.getElementById('customTags').value
+            };
+
+            console.log('DEBUG: Order data:', orderData);
+
+            if (!orderData.qty || !orderData.symbol) {
+                console.log('DEBUG: Missing required fields');
+                alert('Please fill required fields');
+                return;
+            }
+
+            console.log('DEBUG: Sending order request...');
+            fetch('/api/send_order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(orderData)
+            })
+            .then(response => {
+                console.log('DEBUG: Response received:', response.status);
+                return response.json();
+            })
+            .then(data => {
+                console.log('DEBUG: Response data:', data);
+                if (data.success) {
+                    addLogMessage('Order sent successfully: ' + data.clordid);
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Send order error:', error);
+                alert('Error sending order: ' + error.message);
+            });
+        }
+
+        function replaceOrder() {
+            if (!selectedOrder) {
+                alert('Please select an order to replace');
+                return;
+            }
+
+            const orderData = {
+                orig_clordid: selectedOrder.ClOrdID,
+                qty: document.getElementById('qty').value,
+                side: document.getElementById('side').value,
+                symbol: document.getElementById('symbol').value,
+                order_type: document.getElementById('orderType').value,
+                price: document.getElementById('price').value,
+                tif: document.getElementById('tif').value
+            };
+
+            fetch('/api/replace_order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(orderData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    alert('Error: ' + data.message);
+                }
+            });
+        }
+
+        function cancelOrder() {
+            if (!selectedOrder) {
+                alert('Please select an order to cancel');
+                return;
+            }
+
+            const cancelData = {
+                clordid: selectedOrder.ClOrdID,
+                symbol: selectedOrder.Symbol,
+                side: selectedOrder.Side,
+                qty: selectedOrder.Qty
+            };
+
+            fetch('/api/cancel_order', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cancelData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLogMessage('Cancel request sent for order: ' + cancelData.clordid);
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Cancel order error:', error);
+                alert('Error canceling order: ' + error.message);
+            });
+        }
+
+        function loadSampleData() {
+            document.getElementById('qty').value = '1000';
+            document.getElementById('side').value = '1';
+            document.getElementById('symbol').value = 'AAPL';
+            document.getElementById('orderType').value = '1';
+            document.getElementById('price').value = '';
+            document.getElementById('idsource').value = '5';
+            document.getElementById('secid').value = 'AAPL';
+            // document.getElementById('sendersubid').value = 'TRADER01';
+            // document.getElementById('clientid').value = 'CLIENT001';
+            // document.getElementById('text').value = 'Sample order';
+            document.getElementById('tif').value = '0';
+        }
+
+        function updateSessionStatus(message, type) {
+            const statusEl = document.getElementById('sessionStatus');
+            statusEl.textContent = 'Status: ' + message;
+            statusEl.className = 'status status-' + type;
+        }
+
+        function selectOrder(order, rowElement) {
+            selectedOrder = order;
+            console.log('Selected order:', order);
+            
+            // Update form with order details
+            document.getElementById('qty').value = order.Qty || '';
+            document.getElementById('side').value = order.Side || '1';
+            document.getElementById('symbol').value = order.Symbol || '';
+            document.getElementById('price').value = order.Price || '';
+            
+            // Populate additional FIX fields if available
+            document.getElementById('idsource').value = order.IDSource || '5';
+            document.getElementById('secid').value = order.SecurityID || order.Symbol || '';
+            document.getElementById('sendersubid').value = order.SenderSubID || '';
+            document.getElementById('clientid').value = order.ClientID || '';
+            document.getElementById('text').value = order.Text || '';
+            document.getElementById('customTags').value = order.CustomTags || '';
+            document.getElementById('tif').value = order.TimeInForce || '0';
+            
+            // Set order type based on price
+            if (order.Price && parseFloat(order.Price) > 0) {
+                document.getElementById('orderType').value = '2'; // Limit
+            } else {
+                document.getElementById('orderType').value = '1'; // Market
+            }
+            
+            // Enable replace/cancel buttons
+            document.getElementById('replaceOrderBtn').disabled = false;
+            document.getElementById('cancelOrderBtn').disabled = false;
+            
+            // Highlight selected row
+            document.querySelectorAll('.orders-table tbody tr').forEach(tr => tr.classList.remove('selected-order'));
+            if (rowElement) {
+                rowElement.classList.add('selected-order');
+            }
+        }
+
+        function refreshOrdersTable(orders) {
+            console.log('Refreshing orders table with:', orders);
+            const tbody = document.getElementById('ordersTable');
+            tbody.innerHTML = '';
+            
+            if (!orders || orders.length === 0) {
+                const row = document.createElement('tr');
+                row.innerHTML = '<td colspan="8" style="text-align: center; color: #666;">No orders</td>';
+                tbody.appendChild(row);
+                return;
+            }
+            
+            orders.forEach((order, index) => {
+                const row = document.createElement('tr');
+                row.onclick = () => selectOrder(order, row);
+                row.style.cursor = 'pointer';
+                row.innerHTML = `
+                    <td>${order.ClOrdID || ''}</td>
+                    <td>${order.OrderID || ''}</td>
+                    <td>${order.Symbol || ''}</td>
+                    <td>${order.Side || ''}</td>
+                    <td>${order.Qty || ''}</td>
+                    <td>${order.Price || ''}</td>
+                    <td><span style="font-weight: bold; color: ${getStatusColor(order.Status)}">${order.Status || ''}</span></td>
+                    <td>${order.Session || ''}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        
+        function getStatusColor(status) {
+            switch(status) {
+                case 'New': return '#27ae60';
+                case 'Filled': return '#2980b9';
+                case 'Canceled': return '#e74c3c';
+                case 'Replaced': return '#f39c12';
+                case 'Rejected': return '#c0392b';
+                case 'Sent': return '#7f8c8d';
+                default: return '#34495e';
+            }
+        }
+
+        function addLogMessage(message) {
+            const logContainer = document.getElementById('logContainer');
+            const div = document.createElement('div');
+            div.textContent = message;
+            logContainer.appendChild(div);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        // Socket event handlers
+        socket.on('connected', (data) => {
+            addLogMessage('Connected to SendFix Multi-Session');
+        });
+
+        socket.on('log_message', (data) => {
+            addLogMessage(data.message);
+        });
+
+        socket.on('connection_result', (data) => {
+            console.log('*** FRONTEND: Received connection_result:', data);
+            if (data.success) {
+                console.log('*** FRONTEND: Connection result SUCCESS - setting Connected status');
+                updateSessionStatus('Connected', 'connected');
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('disconnectBtn').disabled = false;
+                // Keep the selected session in dropdown - don't change it
+            } else {
+                console.log('*** FRONTEND: Connection result FAILED');
+                updateSessionStatus('Connection Failed', 'disconnected');
+                document.getElementById('connectBtn').disabled = false;
+                alert('Connection Error: ' + data.message);
+            }
+        });
+
+        socket.on('order_updated', (data) => {
+            console.log('Order update received:', data);
+            if (data.all_orders) {
+                refreshOrdersTable(data.all_orders);
+            } else {
+                // Fallback to fetch if no order data
+                fetch('/api/orders')
+                    .then(response => response.json())
+                    .then(result => refreshOrdersTable(result.orders));
+            }
+        });
+        
+        socket.on('session_state_changed', (data) => {
+            console.log('*** FRONTEND: Received session_state_changed:', data);
+            const selectedSession = currentSelectedSession || document.getElementById('sessionSelect').value;
+            console.log('*** FRONTEND: Currently selected session:', selectedSession);
+            console.log('*** FRONTEND: Stored selected session:', currentSelectedSession);
+            
+            // Check if this state change is for the currently selected session
+            // Now using exact session ID matching
+            const isMatch = selectedSession && (selectedSession === data.session_id);
+            
+            console.log('*** FRONTEND: Session matching - selected:', selectedSession, 'received:', data.session_id, 'match:', isMatch);
+            
+            if (isMatch) {
+                console.log('*** FRONTEND: Session ID matches, updating status to:', data.state);
+                if (data.state === 'connected') {
+                    console.log('*** FRONTEND: Setting status to Connected');
+                    updateSessionStatus('Connected to ' + selectedSession, 'connected');
+                    document.getElementById('connectBtn').disabled = true;
+                    document.getElementById('disconnectBtn').disabled = false;
+                } else if (data.state === 'disconnected') {
+                    console.log('*** FRONTEND: Setting status to Disconnected');
+                    updateSessionStatus('Disconnected', 'disconnected');
+                    document.getElementById('connectBtn').disabled = false;
+                    document.getElementById('disconnectBtn').disabled = true;
+                }
+            } else {
+                console.log('*** FRONTEND: Session ID does not match, ignoring');
+            }
+        });
+
+        // Tab switching function
+        function switchTab(tabName) {
+            // Hide all tab contents
+            document.querySelectorAll('.tab-content').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            event.target.classList.add('active');
+        }
+        
+        // Command functions
+        function sendRawFix() {
+            const rawFix = document.getElementById('rawFixInput').value;
+            if (!rawFix) {
+                alert('Please enter raw FIX message');
+                return;
+            }
+            
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            fetch('/api/send_raw_fix', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: configName, raw_fix: rawFix })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLogMessage('Raw FIX sent successfully');
+                    document.getElementById('rawFixInput').value = '';
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            });
+        }
+        
+        function sendCustomMessage() {
+            const customMsg = document.getElementById('customMsgInput').value;
+            if (!customMsg) {
+                alert('Please enter custom message');
+                return;
+            }
+            
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            fetch('/api/send_custom_message', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: configName, custom_message: customMsg })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLogMessage('Custom message sent successfully');
+                    document.getElementById('customMsgInput').value = '';
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            });
+        }
+        
+        function sendBulkOrders() {
+            const bulkData = document.getElementById('bulkOrdersInput').value;
+            if (!bulkData) {
+                alert('Please enter bulk order data');
+                return;
+            }
+            
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            fetch('/api/send_bulk_orders', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: configName, bulk_data: bulkData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLogMessage('Bulk orders sent: ' + data.count + ' orders');
+                    document.getElementById('bulkOrdersInput').value = '';
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            });
+        }
+        
+        function sendHeartbeat() {
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            fetch('/api/send_heartbeat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: configName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLogMessage('Heartbeat sent');
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            });
+        }
+        
+        function sendTestRequest() {
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            fetch('/api/send_test_request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_name: configName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLogMessage('Test request sent');
+                } else {
+                    alert('Error: ' + data.message);
+                }
+            });
+        }
+        
+        function forceLogout() {
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            const selectedOption = document.getElementById('sessionSelect').selectedOptions[0];
+            const configName = selectedOption.getAttribute('data-config-name');
+            
+            if (confirm('Are you sure you want to force logout from ' + configName + '?')) {
+                fetch('/api/disconnect', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ session_name: configName })
+                })
+                .then(() => {
+                    addLogMessage('Forced logout from ' + selectedSession);
+                });
+            }
+        }
+        
+        function loadFile() {
+            const fileInput = document.getElementById('fileInput');
+            const file = fileInput.files[0];
+            
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    document.getElementById('bulkOrdersInput').value = e.target.result;
+                    addLogMessage('Loaded file: ' + file.name + ' (' + file.size + ' bytes)');
+                };
+                reader.readAsText(file);
+            }
+        }
+
+        // Config management functions
+        function loadConfig() {
+            fetch('/api/load_config')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        document.getElementById('configEditor').value = JSON.stringify(data.config, null, 2);
+                        document.getElementById('configModal').style.display = 'block';
+                    } else {
+                        alert('Error loading config: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('Error loading config: ' + error.message);
+                });
+        }
+        
+        function saveConfig() {
+            const configText = document.getElementById('configEditor').value;
+            
+            try {
+                // Validate JSON
+                JSON.parse(configText);
+            } catch (e) {
+                alert('Invalid JSON format: ' + e.message);
+                return;
+            }
+            
+            if (confirm('Save configuration changes? This will create a backup of the current config.')) {
+                fetch('/api/save_config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ config: configText })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        addLogMessage('Configuration saved successfully. Backup: ' + data.backup_file);
+                        closeConfigModal();
+                        alert('Configuration saved! Restart server to apply changes.');
+                    } else {
+                        alert('Error saving config: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    alert('Error saving config: ' + error.message);
+                });
+            }
+        }
+        
+        function closeConfigModal() {
+            document.getElementById('configModal').style.display = 'none';
+        }
+        
+        function restartServer() {
+            if (confirm('Restart the server? This will disconnect all sessions and reload configuration.')) {
+                addLogMessage('Server restart initiated...');
+                
+                fetch('/api/restart_server', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        addLogMessage('Server restart command sent. Please wait...');
+                        // Show countdown and reload page
+                        let countdown = 10;
+                        const interval = setInterval(() => {
+                            addLogMessage(`Reloading page in ${countdown} seconds...`);
+                            countdown--;
+                            if (countdown <= 0) {
+                                clearInterval(interval);
+                                window.location.reload();
+                            }
+                        }, 1000);
+                    } else {
+                        alert('Error restarting server: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    addLogMessage('Server restart initiated (connection lost)');
+                    // Reload page after delay
+                    setTimeout(() => window.location.reload(), 5000);
+                });
+            }
+        }
+        
+        // Close modal when clicking outside
+        window.onclick = function(event) {
+            const modal = document.getElementById('configModal');
+            if (event.target == modal) {
+                closeConfigModal();
+            }
+        }
+
+        // Sequence management function
+        function setSequenceNumbers() {
+            const selectedSession = document.getElementById('sessionSelect').value;
+            if (!selectedSession) {
+                alert('Please select a session first');
+                return;
+            }
+            
+            const incomingSeq = document.getElementById('incomingSeq').value;
+            const outgoingSeq = document.getElementById('outgoingSeq').value;
+            
+            if (!incomingSeq && !outgoingSeq) {
+                alert('Please enter at least one sequence number');
+                return;
+            }
+            
+            if (confirm('Set sequence numbers? This may cause sequence gaps.')) {
+                fetch('/api/set_sequence_numbers', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        session_id: selectedSession,
+                        sender_seq: outgoingSeq,
+                        target_seq: incomingSeq
+                    })
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        addLogMessage(`Sequence numbers set for ${selectedSession} - Incoming: ${incomingSeq}, Outgoing: ${outgoingSeq}`);
+                    } else {
+                        alert('Error: ' + data.message);
+                    }
+                });
+            }
+        }
+
+        // Load initial orders
+        fetch('/api/orders')
+            .then(response => response.json())
+            .then(data => refreshOrdersTable(data.orders));
+    </script>
+</body>
+</html>
