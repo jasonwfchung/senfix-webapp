@@ -42,7 +42,7 @@ def api_login_required(f):
 
 # Global variables
 multi_client = None
-orders = []
+user_orders = {}  # Track orders per user: {username: [orders]}
 connected_clients = []
 users = load_users()
 session_states = {}  # Track session connection states
@@ -109,7 +109,7 @@ class WebMessageHandler:
             
             # Status mapping
             status_map = {
-                '0': 'New', '1': 'Partial Fill', '2': 'Filled',
+                '0': 'New', '1': 'Partial Fill', '2': 'Filled', '3': 'Done for day',
                 '4': 'Canceled', '5': 'Replaced', '6': 'Pending Cancel',
                 '8': 'Rejected', 'A': 'Pending New', 'E': 'Pending Replace'
             }
@@ -117,38 +117,41 @@ class WebMessageHandler:
             new_status = status_map.get(exec_type, f'Status({exec_type})')
             print(f"New status: {new_status}")
             
-            # Update order status
+            # Update order status for all users
             updated = False
-            for order in orders:
-                if order['ClOrdID'] == clordid or (orig_clordid and order['ClOrdID'] == orig_clordid):
-                    old_status = order['Status']
-                    order['Status'] = new_status
-                    
-                    # Update OrderID if provided
-                    if order_id:
-                        order['OrderID'] = order_id
+            for username, user_order_list in user_orders.items():
+                for order in user_order_list:
+                    if order['ClOrdID'] == clordid or (orig_clordid and order['ClOrdID'] == orig_clordid):
+                        old_status = order['Status']
+                        order['Status'] = new_status
                         
-                    # Update other fields if provided in execution report
-                    if symbol:
-                        order['Symbol'] = symbol
-                    if side:
-                        order['Side'] = side
-                    if qty:
-                        order['Qty'] = qty
-                    if price:
-                        order['Price'] = price
+                        # Update OrderID if provided
+                        if order_id:
+                            order['OrderID'] = order_id
+                            
+                        # Update other fields if provided in execution report
+                        if symbol:
+                            order['Symbol'] = symbol
+                        if side:
+                            order['Side'] = side
+                        if qty:
+                            order['Qty'] = qty
+                        if price:
+                            order['Price'] = price
+                            
+                        # For replace orders, update ClOrdID to new one
+                        if orig_clordid and order['ClOrdID'] == orig_clordid and clordid:
+                            order['ClOrdID'] = clordid
+                            
+                        print(f"*** ORDER UPDATED: {old_status} -> {new_status} ***")
+                        print(f"Updated fields: OrderID={order.get('OrderID', 'N/A')}, Symbol={order.get('Symbol', 'N/A')}, Qty={order.get('Qty', 'N/A')}, Price={order.get('Price', 'N/A')}")
                         
-                    # For replace orders, update ClOrdID to new one
-                    if orig_clordid and order['ClOrdID'] == orig_clordid and clordid:
-                        order['ClOrdID'] = clordid
-                        
-                    print(f"*** ORDER UPDATED: {old_status} -> {new_status} ***")
-                    print(f"Updated fields: OrderID={order.get('OrderID', 'N/A')}, Symbol={order.get('Symbol', 'N/A')}, Qty={order.get('Qty', 'N/A')}, Price={order.get('Price', 'N/A')}")
-                    
-                    # Emit order update to all clients
-                    self.socketio.emit('order_updated', {'order': order, 'all_orders': orders})
-                    self.log_message(f"Updated order {clordid}: {old_status} -> {new_status}, OrderID={order_id}, Qty={qty}, Price={price}")
-                    updated = True
+                        # Emit order update to specific user only
+                        self.socketio.emit('order_updated', {'order': order, 'all_orders': user_order_list}, room=f'user_{username}')
+                        self.log_message(f"Updated order {clordid}: {old_status} -> {new_status}, OrderID={order_id}, Qty={qty}, Price={price}")
+                        updated = True
+                        break
+                if updated:
                     break
                     
             if not updated:
@@ -168,11 +171,12 @@ class WebMessageHandler:
                     
             orig_clordid = fields.get('41', '')
             
-            for order in orders:
-                if order['ClOrdID'] == orig_clordid:
-                    order['Status'] = 'Cancel Rejected'
-                    self.socketio.emit('order_updated', order)
-                    break
+            for username, user_order_list in user_orders.items():
+                for order in user_order_list:
+                    if order['ClOrdID'] == orig_clordid:
+                        order['Status'] = 'Cancel Rejected'
+                        self.socketio.emit('order_updated', {'order': order, 'all_orders': user_order_list}, room=f'user_{username}')
+                        break
                     
         except Exception as e:
             self.log_message(f"Error processing cancel reject: {e}")
@@ -348,7 +352,7 @@ def get_user_session():
 @api_login_required
 def send_order():
     """Send new order"""
-    global multi_client, orders
+    global multi_client, user_orders
     
     if not multi_client:
         print("DEBUG: No multi_client")
@@ -447,10 +451,15 @@ def send_order():
                 'CustomTags': data.get('custom_tags', ''),
                 'TimeInForce': data.get('tif', '0')
             }
-            orders.append(new_order)
+            # Initialize user orders if not exists
+            username = session['user']
+            if username not in user_orders:
+                user_orders[username] = []
             
-            # Emit new order to all clients
-            socketio.emit('order_updated', {'order': new_order, 'all_orders': orders})
+            user_orders[username].append(new_order)
+            
+            # Emit new order only to the user who created it
+            socketio.emit('order_updated', {'order': new_order, 'all_orders': user_orders[username]}, room=f'user_{username}')
             
             return jsonify({'success': True, 'clordid': actual_clordid})
         else:
@@ -497,11 +506,13 @@ def replace_order():
         )
         
         if success:
-            # Update order status
-            for order in orders:
+            # Update order status for current user only
+            username = session['user']
+            user_order_list = user_orders.get(username, [])
+            for order in user_order_list:
                 if order['ClOrdID'] == data['orig_clordid']:
                     order['Status'] = 'Replace Sent'
-                    socketio.emit('order_updated', {'order': order, 'all_orders': orders})
+                    socketio.emit('order_updated', {'order': order, 'all_orders': user_order_list}, room=f'user_{username}')
                     break
                     
             return jsonify({'success': True})
@@ -546,11 +557,13 @@ def cancel_order():
         )
         
         if success:
-            # Update order status
-            for order in orders:
+            # Update order status for current user only
+            username = session['user']
+            user_order_list = user_orders.get(username, [])
+            for order in user_order_list:
                 if order['ClOrdID'] == data['clordid']:
                     order['Status'] = 'Cancel Sent'
-                    socketio.emit('order_updated', {'order': order, 'all_orders': orders})
+                    socketio.emit('order_updated', {'order': order, 'all_orders': user_order_list}, room=f'user_{username}')
                     break
                     
             return jsonify({'success': True})
@@ -561,9 +574,12 @@ def cancel_order():
         return jsonify({'success': False, 'message': str(e)})
 
 @app.route('/api/orders')
+@api_login_required
 def get_orders():
-    """Get all orders"""
-    return jsonify({'orders': orders})
+    """Get current user's orders only"""
+    username = session['user']
+    user_order_list = user_orders.get(username, [])
+    return jsonify({'orders': user_order_list})
 
 @app.route('/api/send_raw_fix', methods=['POST'])
 @api_login_required
@@ -940,6 +956,11 @@ def handle_connect():
     """Handle client connection"""
     connected_clients.append(request.sid)
     emit('connected', {'message': 'Connected to SendFix Multi-Session'})
+    
+    # Join user-specific room if authenticated
+    if 'user' in session:
+        from flask_socketio import join_room
+        join_room(f'user_{session["user"]}')
 
 @socketio.on('disconnect')
 def handle_disconnect():
