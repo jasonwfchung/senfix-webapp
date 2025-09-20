@@ -21,6 +21,7 @@ class QuickFixClient(fix.Application):
         self.logged_on = False
         self.connection_failed = False
         self.quickfix_overrides = {}
+        self.connection_count = 0
         
     def setup_logging(self):
         logging.basicConfig(
@@ -129,6 +130,16 @@ HeartBtInt={self.HEARTBEAT}
             
     def connect(self):
         try:
+            # CRITICAL: Track connection attempts
+            self.connection_count += 1
+            self.log_message(f"*** CONNECTION ATTEMPT #{self.connection_count} ***")
+            
+            # CRITICAL: Ensure clean state before connecting
+            self.session_id = None
+            self.logged_on = False
+            self.running = False
+            self.connection_failed = False
+            
             self.create_config_file()
             
             # Create directories if they don't exist
@@ -154,6 +165,8 @@ HeartBtInt={self.HEARTBEAT}
                 else:
                     self.log_message(f"*** Store file not found: {store_file} ***")
             
+            # CRITICAL: Create fresh QuickFIX objects for each connection
+            self.log_message(f"*** CREATING FRESH QUICKFIX OBJECTS ***")
             settings = fix.SessionSettings('quickfix_client.cfg')
             store_factory = fix.FileStoreFactory(settings)
             log_factory = fix.FileLogFactory(settings)
@@ -180,6 +193,19 @@ HeartBtInt={self.HEARTBEAT}
                 except Exception as e:
                     self.log_message(f"*** ACCEPTOR: Port check error: {e} ***")
             else:
+                # CRITICAL: Force cleanup of old initiator
+                if hasattr(self, 'initiator'):
+                    self.log_message(f"*** DESTROYING OLD INITIATOR ***")
+                    try:
+                        self.initiator.stop()
+                        time.sleep(0.2)
+                    except:
+                        pass
+                    del self.initiator
+                    import gc
+                    gc.collect()
+                    
+                self.log_message(f"*** CREATING FRESH INITIATOR ***")
                 self.initiator = fix.SocketInitiator(self, store_factory, settings, log_factory)
                 self.initiator.start()
                 self.running = True
@@ -204,23 +230,58 @@ HeartBtInt={self.HEARTBEAT}
             
     def disconnect(self):
         try:
+            # CRITICAL: Force logout before disconnect to clean QuickFIX state
+            if self.session_id and self.logged_on:
+                self.log_message(f"*** FORCING LOGOUT BEFORE DISCONNECT: {self.session_id} ***")
+                try:
+                    fix.Session.logout(self.session_id)
+                    time.sleep(0.5)  # Allow logout to complete
+                except Exception as e:
+                    self.log_message(f"*** LOGOUT ERROR: {e} ***")
+            
             if self.connection_type == 'acceptor' and hasattr(self, 'acceptor') and self.running:
                 self.log_message(f"*** ACCEPTOR: Stopping acceptor on port {self.PORT} ***")
                 self.acceptor.stop()
                 self.log_message(f"*** ACCEPTOR: Stopped successfully ***")
+                del self.acceptor
             elif hasattr(self, 'initiator') and self.running:
-                self.log_message("Manually disconnecting session")
+                self.log_message("*** INITIATOR: Stopping initiator ***")
                 self.initiator.stop()
+                time.sleep(0.5)  # Allow stop to complete
+                del self.initiator
+                
             self.running = False
             self.logged_on = False
             self.logon_count = 0  # Reset logon counter
+            
+            # CRITICAL: Clear session_id on disconnect to prevent stale references
+            if self.session_id:
+                self.log_message(f"*** CLEARING SESSION_ID: {self.session_id} ***")
+                self.session_id = None
+                
+            # CRITICAL: Force cleanup of QuickFIX internal state
+            import gc
+            gc.collect()
+            self.log_message(f"*** DISCONNECT COMPLETE - QuickFIX state cleared ***")
         except Exception as e:
             self.log_message(f"Disconnect error: {e}")
             
     # QuickFIX Application callbacks
     def onCreate(self, sessionID):
-        self.session_id = sessionID
+        # CRITICAL: Do NOT set session_id here - only in onLogon when actually connected
+        # Clear any stale session_id to prevent confusion
+        if self.session_id:
+            self.log_message(f"*** CLEARING STALE SESSION_ID: {self.session_id} ***")
+            self.session_id = None
+        
+        # CRITICAL: Reset all state for fresh session
+        self.logged_on = False
+        self.connection_failed = False
+        self.logon_count = 0
+        
         self.log_message(f"*** SESSION LIFECYCLE: onCreate() called for {sessionID} ***")
+        self.log_message(f"*** CONNECTION #{self.connection_count} - FRESH SESSION CREATED ***")
+        self.log_message(f"*** SESSION_ID NOT SET - waiting for onLogon() ***")
         self.log_message(f"Session created: {sessionID}")
         
     def onLogon(self, sessionID):
@@ -228,19 +289,30 @@ HeartBtInt={self.HEARTBEAT}
         self.connection_failed = False
         self.logon_time = time.time()  # Track logon time
         
-        self.log_message(f"*** SESSION LIFECYCLE: onLogon() called for {sessionID} ***")
-        self.log_message(f"*** SESSION STATE: logged_on={self.logged_on}, running={self.running} ***")
+        # CRITICAL: Set session_id ONLY on successful logon - this is the ONLY valid session
+        old_session_id = self.session_id
+        self.session_id = sessionID
         
-        # Check QuickFIX session state
+        self.log_message(f"*** SESSION LIFECYCLE: onLogon() called for {sessionID} ***")
+        self.log_message(f"*** SESSION ID SET ON LOGON: {old_session_id} -> {sessionID} ***")
+        self.log_message(f"*** THIS IS THE ONLY VALID SESSION FOR ORDERS ***")
+        self.log_message(f"*** SESSION STATE: logged_on={self.logged_on}, running={self.running} ***")
+        self.log_message(f"*** LOGON SESSION OBJECT ID: {id(sessionID)} ***")
+        self.log_message(f"*** CLIENT OBJECT ID AT LOGON: {id(self)} ***")
+        
+        # Give QuickFIX time to fully initialize the session
+        time.sleep(0.2)  # Allow QuickFIX internal state to sync
+        
+        # Verify session exists in registry (but don't trust isLoggedOn check)
         try:
             session = fix.Session.lookupSession(sessionID)
             if session:
-                qf_logged_on = session.isLoggedOn()
-                self.log_message(f"*** QUICKFIX SESSION STATE: isLoggedOn={qf_logged_on} ***")
+                self.log_message(f"*** SUCCESS: Session found in QuickFIX registry ***")
+                self.log_message(f"*** TRUSTING onLogon() CALLBACK - session is ready for orders ***")
             else:
-                self.log_message(f"*** QUICKFIX SESSION: Not found in session registry ***")
+                self.log_message(f"*** ERROR: Session not found in QuickFIX registry ***")
         except Exception as e:
-            self.log_message(f"*** ERROR checking QuickFIX session state: {e} ***")
+            self.log_message(f"*** ERROR checking QuickFIX session registry: {e} ***")
         
         self.log_message(f"Logon successful: {sessionID}")
         
@@ -251,6 +323,17 @@ HeartBtInt={self.HEARTBEAT}
         self.logged_on = False
         self.log_message(f"*** SESSION LIFECYCLE: onLogout() called for {sessionID} ***")
         self.log_message(f"*** SESSION STATE: logged_on={self.logged_on}, running={self.running} ***")
+        
+        # CRITICAL: Clear session_id on logout to prevent stale references
+        if self.session_id:
+            self.log_message(f"*** CLEARING SESSION_ID ON LOGOUT: {self.session_id} ***")
+            self.session_id = None
+        else:
+            self.log_message(f"*** SESSION_ID ALREADY CLEARED ***")
+        
+        # CRITICAL: Reset logon counter for fresh reconnection
+        self.logon_count = 0
+        self.log_message(f"*** RESET LOGON COUNTER FOR FRESH RECONNECTION ***")
         
         # Check if this is an immediate logout after logon (connection rejected)
         if hasattr(self, 'logon_time'):
@@ -289,6 +372,7 @@ HeartBtInt={self.HEARTBEAT}
                 self.log_message(f"*** LOGON ATTEMPT #{self.logon_count} ***")
                 if self.logon_count > 1:
                     self.log_message(f"*** WARNING: Multiple logon attempts detected ***")
+                    self.log_message(f"*** Connection #{self.connection_count} - Logon attempt #{self.logon_count} ***")
                     self.log_message(f"*** Session state - logged_on: {self.logged_on}, running: {self.running} ***")
                     
                     # Check why we're sending another logon
@@ -304,8 +388,19 @@ HeartBtInt={self.HEARTBEAT}
             else:
                 self.logon_count = 1
                 self.log_message(f"*** FIRST LOGON ATTEMPT ***")
+                self.log_message(f"*** CONNECTION #{self.connection_count} - FRESH LOGON ***")
         elif msg_type == '0':  # Heartbeat
             self.log_message(f"*** HEARTBEAT SENT - Session appears active ***")
+            # Verify session is still valid during heartbeat
+            try:
+                if self.session_id:
+                    session_obj = fix.Session.lookupSession(self.session_id)
+                    if not session_obj:
+                        self.log_message(f"*** CRITICAL: Session lost during heartbeat - {self.session_id} ***")
+                        self.logged_on = False
+                        self.session_id = None
+            except Exception as e:
+                self.log_message(f"*** Heartbeat session check error: {e} ***")
                 
         self.log_message(f"Sent Admin ({msg_type}): {self.format_message(message)}")
         
@@ -333,6 +428,16 @@ HeartBtInt={self.HEARTBEAT}
             self.log_message(f"*** SEQUENCE RESET - Adjusting sequence numbers ***")
         elif msg_type == '0':  # Heartbeat
             self.log_message(f"*** HEARTBEAT RECEIVED - Session active ***")
+            # Confirm session is still valid on heartbeat receipt
+            try:
+                if self.session_id:
+                    session_obj = fix.Session.lookupSession(self.session_id)
+                    if session_obj:
+                        self.log_message(f"*** HEARTBEAT CONFIRMS: Session {self.session_id} still valid ***")
+                    else:
+                        self.log_message(f"*** HEARTBEAT WARNING: Session {self.session_id} not found ***")
+            except Exception as e:
+                self.log_message(f"*** Heartbeat validation error: {e} ***")
         elif msg_type == '5':  # Logout
             self.log_message(f"*** LOGOUT MESSAGE RECEIVED ***")
             
@@ -358,7 +463,7 @@ HeartBtInt={self.HEARTBEAT}
             self.gui_callback(formatted_msg)
             
     def send_new_order_single(self, symbol, side, quantity, price=None, order_type='1', tif='0', custom_tags=None):
-        """Send New Order Single"""
+        """Send New Order Single with proper header field handling"""
         try:
             if not self.session_id:
                 self.log_message("No active session")
@@ -386,14 +491,63 @@ HeartBtInt={self.HEARTBEAT}
             if price and order_type == '2':
                 message.setField(fix.Price(float(price)))
                 
-            # Add custom tags
+            # Add custom tags with proper header field handling
             if custom_tags:
                 for tag_value in custom_tags.split('|'):
                     if '=' in tag_value:
                         tag, value = tag_value.split('=', 1)
-                        message.setField(int(tag), value)
+                        tag_int = int(tag)
                         
-            fix.Session.sendToTarget(message, self.session_id)
+                        # Set routing fields in header for proper FIX routing
+                        if tag_int == 50:  # SenderSubID - header field for routing
+                            header.setField(fix.SenderSubID(value))
+                            self.log_message(f"Set SenderSubID (Tag 50) in header: {value}")
+                        elif tag_int == 115:  # OnBehalfOfSubID - header field for routing
+                            header.setField(fix.OnBehalfOfSubID(value))
+                            self.log_message(f"Set OnBehalfOfSubID (Tag 115) in header: {value}")
+                        else:
+                            # Other tags go in message body
+                            message.setField(tag_int, value)
+                        
+            # Trust only our internal state - ignore QuickFIX isLoggedOn() due to stale session_id issues
+            if not (self.logged_on and self.running):
+                self.log_message(f"*** PRE-SEND ERROR: Session not ready (logged_on={self.logged_on}, running={self.running}) ***")
+                return False, None
+                
+            # CRITICAL: Double-check session is still valid before sending
+            try:
+                session_obj = fix.Session.lookupSession(self.session_id)
+                if not session_obj:
+                    self.log_message(f"*** CRITICAL ERROR: Session {self.session_id} not found in QuickFIX registry ***")
+                    self.log_message(f"*** This indicates a stale session - forcing reconnection ***")
+                    self.logged_on = False
+                    self.session_id = None
+                    return False, None
+                    
+                # Additional check: verify session is actually connected to network
+                if not session_obj.isLoggedOn():
+                    self.log_message(f"*** CRITICAL ERROR: QuickFIX session shows not logged on ***")
+                    self.log_message(f"*** Session state mismatch - our logged_on={self.logged_on}, QuickFIX={session_obj.isLoggedOn()} ***")
+                    # Don't fail here - trust our callback, but log the discrepancy
+                    
+            except Exception as e:
+                self.log_message(f"*** SESSION VALIDATION ERROR: {e} ***")
+                return False, None
+            
+            # CRITICAL: Use the EXACT SessionID object from logon - do NOT create fresh one
+            self.log_message(f"*** USING LOGON SESSION_ID: {self.session_id} ***")
+            self.log_message(f"*** LOGON SESSION OBJECT ID: {id(self.session_id)} ***")
+            self.log_message(f"*** CLIENT OBJECT ID AT SEND: {id(self)} ***")
+            self.log_message(f"*** QUICKFIX SESSION OBJECT ID: {id(session_obj)} ***")
+            self.log_message(f"*** PROCEEDING WITH ORDER SEND ***")
+            
+            result = fix.Session.sendToTarget(message, self.session_id)
+            self.log_message(f"*** SEND RESULT: sendToTarget returned {result} ***")
+            
+            if not result:
+                self.log_message(f"*** SEND FAILED: sendToTarget returned False - message not transmitted ***")
+                return False, None
+                
             return True, clordid
         except Exception as e:
             self.log_message(f"Error sending order: {e}")
@@ -485,6 +639,10 @@ HeartBtInt={self.HEARTBEAT}
                         header.setField(fix.SenderCompID(value))
                     elif tag_int == 56:  # TargetCompID - optional override
                         header.setField(fix.TargetCompID(value))
+                    elif tag_int == 50:  # SenderSubID - header field for routing
+                        header.setField(fix.SenderSubID(value))
+                    elif tag_int == 115:  # OnBehalfOfSubID - header field for routing
+                        header.setField(fix.OnBehalfOfSubID(value))
                     else:
                         message.setField(tag_int, value)
                         
@@ -590,9 +748,9 @@ HeartBtInt={self.HEARTBEAT}
         try:
             formatted_pairs = []
             
-            # Get header fields
+            # Get header fields including routing fields
             header = message.getHeader()
-            for field_tag in [8, 9, 35, 49, 56, 34, 52]:
+            for field_tag in [8, 9, 35, 49, 56, 50, 115, 34, 52]:
                 try:
                     if field_tag == 8:
                         field = fix.BeginString()
@@ -608,6 +766,14 @@ HeartBtInt={self.HEARTBEAT}
                         formatted_pairs.append(f"{field_tag}={field.getValue()}")
                     elif field_tag == 56:
                         field = fix.TargetCompID()
+                        header.getField(field)
+                        formatted_pairs.append(f"{field_tag}={field.getValue()}")
+                    elif field_tag == 50:
+                        field = fix.SenderSubID()
+                        header.getField(field)
+                        formatted_pairs.append(f"{field_tag}={field.getValue()}")
+                    elif field_tag == 115:
+                        field = fix.OnBehalfOfSubID()
                         header.getField(field)
                         formatted_pairs.append(f"{field_tag}={field.getValue()}")
                     elif field_tag == 34:
@@ -661,7 +827,7 @@ HeartBtInt={self.HEARTBEAT}
         return msg_types.get(msg_type, f'MsgType({msg_type})')
         
     def is_connected(self):
-        """Check if session is connected"""
+        """Check if session is connected - trust our onLogon callback over QuickFIX isLoggedOn"""
         if not self.running:
             return False
             
@@ -673,15 +839,8 @@ HeartBtInt={self.HEARTBEAT}
         if not self.session_id:
             return False
             
-        try:
-            session = fix.Session.lookupSession(self.session_id)
-            if session:
-                quickfix_logged_on = session.isLoggedOn()
-                return self.logged_on and self.running and quickfix_logged_on
-            return self.logged_on and self.running
-        except Exception as e:
-            self.log_message(f"*** ERROR checking connection status: {e} ***")
-            return False
+        # Trust our logged_on flag from onLogon callback - QuickFIX isLoggedOn() has timing issues
+        return self.logged_on and self.running
         
     def send_sequence_reset(self, new_seq_num, gap_fill=False):
         """Send sequence reset message"""

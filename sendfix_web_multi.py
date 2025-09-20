@@ -109,7 +109,7 @@ class WebMessageHandler:
             
             # Status mapping
             status_map = {
-                '0': 'New', '1': 'Partial Fill', '2': 'Filled', '3': 'Done for day',
+                '0': 'New', '1': 'Partial Fill', '2': 'Filled',
                 '4': 'Canceled', '5': 'Replaced', '6': 'Pending Cancel',
                 '8': 'Rejected', 'A': 'Pending New', 'E': 'Pending Replace'
             }
@@ -304,10 +304,30 @@ def connect_session():
     
     def connect_thread():
         success, message = multi_client.connect_session(session_name)
+        
+        # CRITICAL: ALWAYS refresh user session mapping on connection attempt
+        # This ensures we use the fresh client object, not stale ones
+        current_user = session.get('user')
+        if current_user:
+            # Force clear any existing mapping
+            if current_user in user_sessions:
+                old_mapping = user_sessions[current_user]
+                del user_sessions[current_user]
+                message_handler.log_message(f"*** CLEARED OLD USER SESSION: {current_user} -> {old_mapping} ***")
+            
+            # Set fresh mapping to new session (even if connection fails, clear old mapping)
+            if success:
+                user_sessions[current_user] = session_name
+                message_handler.log_message(f"*** SET FRESH USER SESSION: {current_user} -> {session_name} ***")
+            
+            message_handler.log_message(f"*** USER_SESSIONS AFTER REFRESH: {user_sessions} ***")
+        
         socketio.emit('connection_result', {
             'success': success,
             'message': message,
-            'session_name': session_name
+            'session_name': session_name,
+            'force_dropdown_refresh': True,
+            'clear_user_mapping': True  # Signal frontend to clear any cached mappings
         })
     
     threading.Thread(target=connect_thread, daemon=True).start()
@@ -362,23 +382,36 @@ def send_order():
     user_session = user_sessions.get(session['user'])
     print(f"DEBUG: User {session['user']} user_sessions lookup: {user_session}")
     print(f"DEBUG: Available user_sessions: {user_sessions}")
+    message_handler.log_message(f"*** SEND ORDER DEBUG: User {session['user']} -> {user_session} ***")
+    message_handler.log_message(f"*** USER_SESSIONS STATE: {user_sessions} ***")
     
     if not user_session:
         return jsonify({'success': False, 'message': 'No session selected. Please select a session first.'})
     
     print(f"DEBUG: User {session['user']} selected session: {user_session}")
     print(f"DEBUG: Available multi_client sessions: {list(multi_client.sessions.keys())}")
+    message_handler.log_message(f"*** AVAILABLE SESSIONS: {list(multi_client.sessions.keys())} ***")
     
     # Check if user's session is available and connected
     if user_session not in multi_client.sessions:
         print(f"DEBUG: Session {user_session} not found in multi_client.sessions")
+        message_handler.log_message(f"*** ERROR: Session {user_session} not found in sessions dict ***")
         return jsonify({'success': False, 'message': f'Session {user_session} not available'})
     
     client = multi_client.sessions[user_session]
     print(f"DEBUG: Client found - session_id: {client.session_id}, running: {client.running}")
+    message_handler.log_message(f"*** CLIENT STATUS: session_id={client.session_id}, running={client.running}, logged_on={client.logged_on} ***")
+    message_handler.log_message(f"*** CLIENT OBJECT ID: {id(client)} ***")
+    message_handler.log_message(f"*** SESSION_ID OBJECT ID: {id(client.session_id) if client.session_id else 'None'} ***")
     
-    if not (client.session_id and client.running):
-        print(f"DEBUG: Session {user_session} validation failed - session_id: {client.session_id}, running: {client.running}")
+    # CRITICAL: Force user session mapping refresh to ensure fresh client reference
+    user_sessions[session['user']] = user_session
+    message_handler.log_message(f"*** FORCED USER SESSION REFRESH: {session['user']} -> {user_session} ***")
+    
+    # Use is_connected() method which trusts our internal state
+    if not client.is_connected():
+        print(f"DEBUG: Session {user_session} validation failed - is_connected returned False")
+        message_handler.log_message(f"*** VALIDATION FAILED: is_connected()=False (logged_on={client.logged_on}, running={client.running}) ***")
         return jsonify({'success': False, 'message': f'Session {user_session} is not connected'})
     
     # Set user's session as active for this operation
@@ -403,6 +436,8 @@ def send_order():
             tag_parts.append(f"48={data['secid']}")
         if data.get('sendersubid'):
             tag_parts.append(f"50={data['sendersubid']}")
+        if data.get('onbehalfofsubid'):
+            tag_parts.append(f"115={data['onbehalfofsubid']}")
         if data.get('clientid'):
             tag_parts.append(f"109={data['clientid']}")
         if data.get('text'):
@@ -415,6 +450,18 @@ def send_order():
         client = multi_client.get_current_client()
         print(f"DEBUG: Using client for session: {multi_client.active_session}")
         print(f"DEBUG: Client session_id: {client.session_id if client else 'None'}")
+        message_handler.log_message(f"*** SEND ORDER CLIENT OBJECT ID: {id(client) if client else 'None'} ***")
+        message_handler.log_message(f"*** SEND ORDER SESSION_ID OBJECT ID: {id(client.session_id) if client and client.session_id else 'None'} ***")
+        
+        # Verify this is the same client object we checked earlier
+        original_client = multi_client.sessions[user_session]
+        if client != original_client:
+            message_handler.log_message(f"*** WARNING: CLIENT OBJECT MISMATCH! Original: {id(original_client)}, Current: {id(client)} ***")
+        else:
+            message_handler.log_message(f"*** CLIENT OBJECT MATCH CONFIRMED ***")
+        
+        # Final verification before sending
+        message_handler.log_message(f"*** FINAL PRE-SEND CHECK: Client={id(client)}, SessionID={client.session_id}, LoggedOn={client.logged_on} ***")
         
         success, actual_clordid = client.send_new_order_single(
             symbol=data['symbol'],
@@ -425,6 +472,8 @@ def send_order():
             tif=data['tif'],
             custom_tags=custom_tags
         )
+        
+        message_handler.log_message(f"*** ORDER SEND RESULT: success={success}, clordid={actual_clordid} ***")
         
         if success and actual_clordid:
             # Get FIX session ID from active session
@@ -446,6 +495,7 @@ def send_order():
                 'IDSource': data.get('idsource', ''),
                 'SecurityID': data.get('secid', ''),
                 'SenderSubID': data.get('sendersubid', ''),
+                'OnBehalfOfSubID': data.get('onbehalfofsubid', ''),
                 'ClientID': data.get('clientid', ''),
                 'Text': data.get('text', ''),
                 'CustomTags': data.get('custom_tags', ''),
@@ -969,4 +1019,4 @@ def handle_disconnect():
         connected_clients.remove(request.sid)
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5001, debug=True, allow_unsafe_werkzeug=True)
+    socketio.run(app, host='0.0.0.0', port=8081, debug=True, allow_unsafe_werkzeug=True)

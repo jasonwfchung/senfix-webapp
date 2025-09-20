@@ -49,18 +49,30 @@ class MultiFixClient:
         return [session['name'] for session in self.session_configs]
         
     def connect_session(self, session_name):
-        """Connect to a specific session"""
+        """Connect to a specific session - always create completely fresh client"""
         try:
-            # Check if already connected to this session
+            # ALWAYS create fresh client - disconnect and remove old one if exists
             if session_name in self.sessions:
-                client = self.sessions[session_name]
-                if client.is_connected():
-                    self.active_session = session_name
-                    return True, f"Already connected to {session_name}"
-                else:
-                    # Properly disconnect and clean up old session
-                    client.disconnect()
-                    del self.sessions[session_name]
+                old_client = self.sessions[session_name]
+                old_client.disconnect()
+                # Wait for clean disconnect
+                import time
+                time.sleep(0.5)
+                del self.sessions[session_name]
+                if self.message_callback:
+                    self.message_callback(f"*** FRESH CLIENT: Removed old client for {session_name} ***")
+            
+            # Clear any stale QuickFIX sessions
+            import os
+            import glob
+            session_files = glob.glob(f"store/*{session_name}*")
+            for f in session_files:
+                try:
+                    os.remove(f)
+                    if self.message_callback:
+                        self.message_callback(f"*** CLEANED: Removed {f} ***")
+                except:
+                    pass
             
             # Find session config
             session_config = None
@@ -79,6 +91,9 @@ class MultiFixClient:
             client = QuickFixClient(self.message_callback, self.session_state_callback, connection_type)
             client.gui_callback = self.message_callback  # Set GUI callback for execution reports
             
+            if self.message_callback:
+                self.message_callback(f"*** NEW CLIENT CREATED: {session_name} -> Object ID: {id(client)} ***")
+            
             # Override config with session-specific values
             client.HOST = session_config.get('server_ip', 'localhost')  # Acceptors don't need server_ip
             client.PORT = session_config['port']
@@ -95,6 +110,10 @@ class MultiFixClient:
             client.connect()
             self.sessions[session_name] = client
             self.active_session = session_name
+            
+            if self.message_callback:
+                self.message_callback(f"*** CLIENT STORED: {session_name} -> sessions[{session_name}] = {id(client)} ***")
+                self.message_callback(f"*** CLIENT SESSION_ID AT STORAGE: {id(client.session_id) if client.session_id else 'None'} ***")
             return True, f"Connecting to {session_name}..."
                 
         except Exception as e:
@@ -126,7 +145,12 @@ class MultiFixClient:
     def get_current_client(self):
         """Get current active client"""
         if self.active_session and self.active_session in self.sessions:
-            return self.sessions[self.active_session]
+            client = self.sessions[self.active_session]
+            if self.message_callback:
+                self.message_callback(f"*** GET_CURRENT_CLIENT: {self.active_session} -> {id(client)} ***")
+                self.message_callback(f"*** CLIENT SESSION_ID AT RETRIEVAL: {id(client.session_id) if client.session_id else 'None'} ***")
+                self.message_callback(f"*** CLIENT CONNECTION STATE: logged_on={client.logged_on}, running={client.running} ***")
+            return client
         return None
         
     def get_current_session_info(self):

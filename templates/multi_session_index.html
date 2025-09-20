@@ -163,6 +163,10 @@
                     <input type="text" id="sendersubid" placeholder="Tag50">
                 </div>
                 <div class="form-group">
+                    <label>On Behalf Of Sub ID:</label>
+                    <input type="text" id="onbehalfofsubid" placeholder="Tag115">
+                </div>
+                <div class="form-group">
                     <label>Client ID:</label>
                     <input type="text" id="clientid" placeholder="Tag109">
                 </div>
@@ -500,6 +504,7 @@
                 idsource: document.getElementById('idsource').value,
                 secid: document.getElementById('secid').value,
                 sendersubid: document.getElementById('sendersubid').value,
+                onbehalfofsubid: document.getElementById('onbehalfofsubid').value,
                 clientid: document.getElementById('clientid').value,
                 text: document.getElementById('text').value,
                 tif: document.getElementById('tif').value,
@@ -633,6 +638,7 @@
             document.getElementById('idsource').value = order.IDSource || '5';
             document.getElementById('secid').value = order.SecurityID || order.Symbol || '';
             document.getElementById('sendersubid').value = order.SenderSubID || '';
+            document.getElementById('onbehalfofsubid').value = order.OnBehalfOfSubID || '';
             document.getElementById('clientid').value = order.ClientID || '';
             document.getElementById('text').value = order.Text || '';
             document.getElementById('customTags').value = order.CustomTags || '';
@@ -722,7 +728,16 @@
                 updateSessionStatus('Connected', 'connected');
                 document.getElementById('connectBtn').disabled = true;
                 document.getElementById('disconnectBtn').disabled = false;
-                // Keep the selected session in dropdown - don't change it
+                
+                // Force dropdown refresh if requested
+                if (data.force_dropdown_refresh) {
+                    console.log('*** FRONTEND: Force dropdown refresh requested');
+                    const sessionSelect = document.getElementById('sessionSelect');
+                    const currentValue = sessionSelect.value;
+                    // Trigger change event to refresh user session mapping
+                    sessionSelect.dispatchEvent(new Event('change'));
+                    console.log('*** FRONTEND: Dropdown refresh completed');
+                }
             } else {
                 console.log('*** FRONTEND: Connection result FAILED');
                 updateSessionStatus('Connection Failed', 'disconnected');
@@ -962,6 +977,8 @@
                 reader.onload = function(e) {
                     document.getElementById('bulkOrdersInput').value = e.target.result;
                     addLogMessage('Loaded file: ' + file.name + ' (' + file.size + ' bytes)');
+                    // Clear the file input to allow reloading the same file
+                    fileInput.value = '';
                 };
                 reader.readAsText(file);
             }

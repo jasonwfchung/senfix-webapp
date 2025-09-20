@@ -44,6 +44,33 @@
       "sender_comp_id": "EFGH",
       "server_ip": "uk1pvpsauto01",
       "target_comp_id": "ABCD"
+    },
+        {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "CITADEL1",
+      "port": 7531,
+      "sender_comp_id": "APPT01",
+      "server_ip": "njc1lx4549",
+      "target_comp_id": "LNQT01"
+    },
+        {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "CITADELDC",
+      "port": 7531,
+      "sender_comp_id": "APPTDC",
+      "server_ip": "njc1lx4549",
+      "target_comp_id": "LNQTDC"
+    },
+        {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "CITADEL2",
+      "port": 7531,
+      "sender_comp_id": "APPT02",
+      "server_ip": "njc1lx4549",
+      "target_comp_id": "LNQT02"
     }
   ]
 }
