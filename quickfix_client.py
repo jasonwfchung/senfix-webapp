@@ -502,9 +502,9 @@ HeartBtInt={self.HEARTBEAT}
                         if tag_int == 50:  # SenderSubID - header field for routing
                             header.setField(fix.SenderSubID(value))
                             self.log_message(f"Set SenderSubID (Tag 50) in header: {value}")
-                        elif tag_int == 115:  # OnBehalfOfSubID - header field for routing
-                            header.setField(fix.OnBehalfOfSubID(value))
-                            self.log_message(f"Set OnBehalfOfSubID (Tag 115) in header: {value}")
+                        elif tag_int == 115:  # OnBehalfOfCompID - header field for routing
+                            header.setField(fix.OnBehalfOfCompID(value))
+                            self.log_message(f"Set OnBehalfOfCompID (Tag 115) in header: {value}")
                         else:
                             # Other tags go in message body
                             message.setField(tag_int, value)
@@ -641,8 +641,8 @@ HeartBtInt={self.HEARTBEAT}
                         header.setField(fix.TargetCompID(value))
                     elif tag_int == 50:  # SenderSubID - header field for routing
                         header.setField(fix.SenderSubID(value))
-                    elif tag_int == 115:  # OnBehalfOfSubID - header field for routing
-                        header.setField(fix.OnBehalfOfSubID(value))
+                    elif tag_int == 115:  # OnBehalfOfCompID - header field for routing
+                        header.setField(fix.OnBehalfOfCompID(value))
                     else:
                         message.setField(tag_int, value)
                         
@@ -773,7 +773,7 @@ HeartBtInt={self.HEARTBEAT}
                         header.getField(field)
                         formatted_pairs.append(f"{field_tag}={field.getValue()}")
                     elif field_tag == 115:
-                        field = fix.OnBehalfOfSubID()
+                        field = fix.OnBehalfOfCompID()
                         header.getField(field)
                         formatted_pairs.append(f"{field_tag}={field.getValue()}")
                     elif field_tag == 34:

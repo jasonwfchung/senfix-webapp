@@ -436,8 +436,8 @@ def send_order():
             tag_parts.append(f"48={data['secid']}")
         if data.get('sendersubid'):
             tag_parts.append(f"50={data['sendersubid']}")
-        if data.get('onbehalfofsubid'):
-            tag_parts.append(f"115={data['onbehalfofsubid']}")
+        if data.get('onbehalfofcompid'):
+            tag_parts.append(f"115={data['onbehalfofcompid']}")
         if data.get('clientid'):
             tag_parts.append(f"109={data['clientid']}")
         if data.get('text'):
@@ -495,7 +495,7 @@ def send_order():
                 'IDSource': data.get('idsource', ''),
                 'SecurityID': data.get('secid', ''),
                 'SenderSubID': data.get('sendersubid', ''),
-                'OnBehalfOfSubID': data.get('onbehalfofsubid', ''),
+                'OnBehalfOfCompID': data.get('onbehalfofcompid', ''),
                 'ClientID': data.get('clientid', ''),
                 'Text': data.get('text', ''),
                 'CustomTags': data.get('custom_tags', ''),

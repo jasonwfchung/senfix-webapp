@@ -132,7 +132,7 @@
                     <input type="text" id="symbol" placeholder="AAPL">
                 </div>
                 <div class="form-group">
-                    <label>Order Type:</label>
+                    <label>OrderType:</label>
                     <select id="orderType">
                         <option value="1" selected>1 (Market)</option>
                         <option value="2">2 (Limit)</option>
@@ -145,7 +145,7 @@
                     <input type="number" step="0.01" id="price" placeholder="150.00">
                 </div>
                 <div class="form-group">
-                    <label>ID Source:</label>
+                    <label>IDSource:</label>
                     <select id="idsource">
                         <option value="1">1 (CUSIP)</option>
                         <option value="2">2 (SEDOL)</option>
@@ -155,19 +155,19 @@
                     </select>
                 </div>
                 <div class="form-group">
-                    <label>Security ID:</label>
+                    <label>SecurityID:</label>
                     <input type="text" id="secid" placeholder="AAPL">
                 </div>
                 <div class="form-group">
-                    <label>Sender Sub ID:</label>
+                    <label>SenderSubID:</label>
                     <input type="text" id="sendersubid" placeholder="Tag50">
                 </div>
                 <div class="form-group">
-                    <label>On Behalf Of Sub ID:</label>
-                    <input type="text" id="onbehalfofsubid" placeholder="Tag115">
+                    <label>OnBehalfOfCompID:</label>
+                    <input type="text" id="onbehalfofcompid" placeholder="Tag115">
                 </div>
                 <div class="form-group">
-                    <label>Client ID:</label>
+                    <label>ClientID:</label>
                     <input type="text" id="clientid" placeholder="Tag109">
                 </div>
                 <div class="form-group">
@@ -175,7 +175,7 @@
                     <input type="text" id="text" placeholder="Tag58">
                 </div>
                 <div class="form-group">
-                    <label>Time In Force:</label>
+                    <label>TimeInForce:</label>
                     <select id="tif">
                         <option value="0">0 (Day)</option>
                         <option value="1">1 (GTC)</option>
@@ -504,7 +504,7 @@
                 idsource: document.getElementById('idsource').value,
                 secid: document.getElementById('secid').value,
                 sendersubid: document.getElementById('sendersubid').value,
-                onbehalfofsubid: document.getElementById('onbehalfofsubid').value,
+                onbehalfofcompid: document.getElementById('onbehalfofcompid').value,
                 clientid: document.getElementById('clientid').value,
                 text: document.getElementById('text').value,
                 tif: document.getElementById('tif').value,
@@ -638,7 +638,7 @@
             document.getElementById('idsource').value = order.IDSource || '5';
             document.getElementById('secid').value = order.SecurityID || order.Symbol || '';
             document.getElementById('sendersubid').value = order.SenderSubID || '';
-            document.getElementById('onbehalfofsubid').value = order.OnBehalfOfSubID || '';
+            document.getElementById('onbehalfofcompid').value = order.OnBehalfOfCompID || '';
             document.getElementById('clientid').value = order.ClientID || '';
             document.getElementById('text').value = order.Text || '';
             document.getElementById('customTags').value = order.CustomTags || '';
