@@ -1,0 +1,37 @@
+[
+  {
+    "client_id": "SIUK",
+    "custom_tags": "15=HKD|9000=DARK-AP",
+    "id": 1,
+    "name": "DARK HK1",
+    "onbehalf_comp_id": "",
+    "security_id": "0001.HK",
+    "sender_sub_id": "",
+    "symbol": "0001.HK",
+    "text": ""
+  },
+  {
+    "client_id": "SIUK",
+    "custom_tags": "9000=BCUDA-AP",
+    "id": 1760681644129,
+    "id_source": "5",
+    "name": "Barcd HK",
+    "onbehalf_comp_id": "",
+    "security_id": "0700.HK",
+    "sender_sub_id": "",
+    "symbol": "0700.HK",
+    "text": ""
+  },
+  {
+    "id": 1760682903606,
+    "name": "Desk SG",
+    "symbol": "STEL.SI",
+    "id_source": "5",
+    "security_id": "STEL.SI",
+    "sender_sub_id": "",
+    "onbehalf_comp_id": "",
+    "client_id": "HSBCGAM",
+    "text": "",
+    "custom_tags": "9000=DESK-AP"
+  }
+]

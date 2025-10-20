@@ -45,7 +45,7 @@
       "server_ip": "uk1pvpsauto01",
       "target_comp_id": "ABCD"
     },
-        {
+    {
       "fix_version": "FIX.4.2",
       "heartbeat_interval": 30,
       "name": "CITADEL1",
@@ -54,7 +54,7 @@
       "server_ip": "njc1lx4549",
       "target_comp_id": "LNQT01"
     },
-        {
+    {
       "fix_version": "FIX.4.2",
       "heartbeat_interval": 30,
       "name": "CITADELDC",
@@ -63,7 +63,7 @@
       "server_ip": "njc1lx4549",
       "target_comp_id": "LNQTDC"
     },
-        {
+    {
       "fix_version": "FIX.4.2",
       "heartbeat_interval": 30,
       "name": "CITADEL2",
@@ -71,6 +71,15 @@
       "sender_comp_id": "APPT02",
       "server_ip": "njc1lx4549",
       "target_comp_id": "LNQT02"
+    },
+    {
+      "fix_version": "FIX.4.2",
+      "heartbeat_interval": 30,
+      "name": "CITADELSLP",
+      "port": 5607,
+      "sender_comp_id": "CITADELAPSLP1",
+      "server_ip": "uk1pbstaslp01",
+      "target_comp_id": "LNELAPSLP1"
     }
   ]
 }

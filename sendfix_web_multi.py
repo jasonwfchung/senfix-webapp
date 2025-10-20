@@ -229,6 +229,141 @@ def logout():
 def index():
     return render_template('multi_session_index.html', user=session['user'], role=session['role'])
 
+@app.route('/get_sessions')
+def get_sessions_public():
+    """Public endpoint for CLI to get sessions"""
+    global multi_client
+    if not multi_client:
+        multi_client = MultiFixClient(message_callback=message_handler.log_message, session_callback=session_state_callback)
+    
+    sessions = []
+    for session_name in multi_client.get_session_names():
+        connected = False
+        if session_name in multi_client.sessions:
+            client = multi_client.sessions[session_name]
+            connected = client.is_connected()
+        
+        sessions.append({
+            'name': session_name,
+            'connected': connected
+        })
+    
+    return jsonify(sessions)
+
+@app.route('/send_bulk_orders', methods=['POST'])
+def send_bulk_orders_public():
+    """Public endpoint for CLI bulk orders"""
+    global multi_client
+    data = request.json
+    session_name = data.get('session_name')
+    orders_data = data.get('orders_data')
+    
+    if not multi_client or session_name not in multi_client.sessions:
+        return jsonify({'success': False, 'message': 'Session not available'}), 400
+    
+    client = multi_client.sessions[session_name]
+    if not client.is_connected():
+        return jsonify({'success': False, 'message': 'Session not connected'}), 400
+    
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            f.write(orders_data)
+            temp_filename = f.name
+        
+        client.send_orders_from_file(temp_filename)
+        order_count = len(orders_data.strip().split('\n')) - 1
+        
+        import os
+        os.unlink(temp_filename)
+        
+        return jsonify({'success': True, 'message': f'Sent {order_count} orders'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/send_raw_fix', methods=['POST'])
+def send_raw_fix_public():
+    """Public endpoint for CLI raw FIX"""
+    global multi_client
+    data = request.json
+    session_name = data.get('session_name')
+    raw_fix = data.get('raw_fix')
+    
+    if not multi_client or session_name not in multi_client.sessions:
+        return jsonify({'success': False, 'message': 'Session not available'}), 400
+    
+    client = multi_client.sessions[session_name]
+    if not client.is_connected():
+        return jsonify({'success': False, 'message': 'Session not connected'}), 400
+    
+    try:
+        success = client.send_raw_fix(raw_fix)
+        return jsonify({'success': success, 'message': 'Raw FIX sent successfully' if success else 'Failed to send'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/login_session', methods=['POST'])
+def login_session_public():
+    """Public endpoint for CLI to login to FIX session"""
+    global multi_client
+    data = request.json
+    session_name = data.get('session_name')
+    
+    if not multi_client:
+        multi_client = MultiFixClient(message_callback=message_handler.log_message, session_callback=session_state_callback)
+    
+    try:
+        success, message = multi_client.connect_session(session_name)
+        return jsonify({
+            'success': success, 
+            'message': message,
+            'session_name': session_name
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)}), 500
+
+@app.route('/api/sample_templates', methods=['GET'])
+@api_login_required
+def get_sample_templates():
+    """Get all sample templates"""
+    try:
+        with open('sample_templates.json', 'r') as f:
+            templates = json.load(f)
+        return jsonify({'success': True, 'templates': templates})
+    except FileNotFoundError:
+        # Return default templates if file doesn't exist
+        default_templates = [
+            {
+                'id': 1,
+                'name': 'AAPL Market Buy',
+                'symbol': 'AAPL',
+                'security_id': 'US0378331005',
+                'sender_sub_id': 'DESK1',
+                'onbehalf_comp_id': 'CLIENT1',
+                'client_id': 'ACC001',
+                'text': 'Sample market buy order',
+                'custom_tags': ''
+            }
+        ]
+        return jsonify({'success': True, 'templates': default_templates})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
+@app.route('/api/sample_templates', methods=['POST'])
+@api_login_required
+def save_sample_templates():
+    """Save sample templates"""
+    try:
+        data = request.json
+        templates = data.get('templates', [])
+        
+        with open('sample_templates.json', 'w') as f:
+            json.dump(templates, f, indent=2)
+            
+        return jsonify({'success': True, 'message': 'Templates saved successfully'})
+    except Exception as e:
+        return jsonify({'success': False, 'message': str(e)})
+
 @app.route('/api/sessions')
 @api_login_required
 def get_sessions():
@@ -644,7 +779,7 @@ def send_raw_fix():
         return jsonify({'success': False, 'message': 'Session not available'})
     
     client = multi_client.sessions[session_name]
-    if not (client.session_id and client.running):
+    if not client.is_connected():
         return jsonify({'success': False, 'message': 'Session not connected'})
     
     try:
@@ -666,7 +801,7 @@ def send_raw_fix():
         updated_raw_fix = '|'.join([f"{tag}={value}" for tag, value in tags.items()])
         
         success = client.send_raw_fix(updated_raw_fix)
-        return jsonify({'success': success})
+        return jsonify({'success': success, 'message': 'Raw FIX message sent successfully' if success else 'Failed to send raw FIX message'})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
@@ -700,12 +835,17 @@ def send_bulk_orders():
     data = request.json
     session_name = data.get('session_name')
     bulk_data = data.get('bulk_data')
+    orders_data = data.get('orders_data')  # For CLI compatibility
+    
+    # Use orders_data if bulk_data not provided (CLI compatibility)
+    if not bulk_data and orders_data:
+        bulk_data = orders_data
     
     if not multi_client or session_name not in multi_client.sessions:
         return jsonify({'success': False, 'message': 'Session not available'})
     
     client = multi_client.sessions[session_name]
-    if not (client.session_id and client.running):
+    if not client.is_connected():
         return jsonify({'success': False, 'message': 'Session not connected'})
     
     try:
@@ -725,7 +865,7 @@ def send_bulk_orders():
         import os
         os.unlink(temp_filename)
         
-        return jsonify({'success': True, 'count': order_count})
+        return jsonify({'success': True, 'message': f'Sent {order_count} orders', 'count': order_count})
     except Exception as e:
         return jsonify({'success': False, 'message': str(e)})
 
