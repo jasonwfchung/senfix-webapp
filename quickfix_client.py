@@ -95,6 +95,11 @@ class QuickFixClient(fix.Application):
             "PersistMessages": "Y"
         })
         
+        # Apply quickfix_overrides if they exist
+        if hasattr(self, 'quickfix_overrides') and self.quickfix_overrides:
+            self.log_message(f"*** Applying QuickFIX overrides: {self.quickfix_overrides} ***")
+            defaults.update(self.quickfix_overrides)
+        
         # Build DEFAULT section
         default_section = "[DEFAULT]\n"
         for key, value in defaults.items():
@@ -358,14 +363,26 @@ HeartBtInt={self.HEARTBEAT}
         message.getHeader().getField(msg_type_field)
         msg_type = msg_type_field.getValue()
         
-        # Remove ResetSeqNumFlag from logon messages
+        # Handle ResetSeqNumFlag in logon messages
         if msg_type == 'A':  # Logon
             try:
-                if message.isSetField(141):  # ResetSeqNumFlag
-                    message.removeField(141)
-                    self.log_message(f"*** REMOVED Tag 141 from logon message ***")
-            except:
-                pass
+                # Check if we have an override for ResetSeqNumFlag
+                if hasattr(self, 'quickfix_overrides') and 'ResetSeqNumFlag' in self.quickfix_overrides:
+                    reset_flag = self.quickfix_overrides['ResetSeqNumFlag']
+                    if reset_flag == 'Y':
+                        message.setField(141, 'Y')
+                        self.log_message(f"*** ADDED Tag 141=Y to logon message (CLI override) ***")
+                    else:
+                        if message.isSetField(141):
+                            message.removeField(141)
+                            self.log_message(f"*** REMOVED Tag 141 from logon message ***")
+                else:
+                    # Default behavior - remove ResetSeqNumFlag
+                    if message.isSetField(141):
+                        message.removeField(141)
+                        self.log_message(f"*** REMOVED Tag 141 from logon message ***")
+            except Exception as e:
+                self.log_message(f"*** ERROR handling ResetSeqNumFlag: {e} ***")
                 
             if hasattr(self, 'logon_count'):
                 self.logon_count += 1
