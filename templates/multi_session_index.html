@@ -56,6 +56,10 @@
         .modal-footer { padding: 20px; border-top: 1px solid #ddd; text-align: right; }
         .modal-footer .btn { margin-left: 10px; }
         .btn-secondary { background: #6c757d; color: white; }
+        .sample-input { width: 100%; padding: 4px; border: 1px solid #ddd; border-radius: 2px; }
+        .sample-row.selected { background-color: #e3f2fd !important; }
+        .sample-row:hover { background-color: #f8f9fa; cursor: pointer; }
+        .btn-small { padding: 4px 8px; font-size: 12px; margin: 0 2px; }
     </style>
 </head>
 <body>
@@ -287,6 +291,46 @@
                 </div>
             </div>
         </div>
+        
+        <!-- Sample Templates Modal -->
+        <div id="sampleModal" class="modal">
+            <div class="modal-content" style="width: 90%; max-width: 1200px;">
+                <div class="modal-header">
+                    <h3>Sample Templates Manager</h3>
+                    <span class="close" onclick="closeSampleModal()">&times;</span>
+                </div>
+                <div class="modal-body">
+                    <div style="margin-bottom: 15px;">
+                        <button class="btn btn-success" onclick="addSampleRow()">Add New Template</button>
+                        <button class="btn btn-primary" onclick="saveSampleTemplates()">Save Templates</button>
+                    </div>
+                    <div style="overflow-x: auto;">
+                        <table id="sampleTable" class="orders-table" style="min-width: 1100px;">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Symbol</th>
+                                    <th>IDSource</th>
+                                    <th>SecurityID</th>
+                                    <th>SenderSubID</th>
+                                    <th>OnBehalfOfCompID</th>
+                                    <th>ClientID</th>
+                                    <th>Text</th>
+                                    <th>CustomTags</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="sampleTableBody">
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-success" onclick="loadSelectedSample()">Load Selected</button>
+                    <button class="btn btn-secondary" onclick="closeSampleModal()">Cancel</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -299,7 +343,6 @@
         document.addEventListener('DOMContentLoaded', function() {
             loadSessions();
             loadUserSession();
-            loadSampleData();
             setupEventListeners();
         });
         
@@ -604,18 +647,159 @@
             });
         }
 
+        let sampleTemplates = [];
+        let selectedSampleRow = null;
+        
         function loadSampleData() {
+            // Load sample templates and show modal
+            fetch('/api/sample_templates')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        sampleTemplates = data.templates;
+                        refreshSampleTable();
+                        document.getElementById('sampleModal').style.display = 'block';
+                    } else {
+                        alert('Error loading templates: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error loading templates:', error);
+                    // Show modal with empty templates
+                    sampleTemplates = [];
+                    refreshSampleTable();
+                    document.getElementById('sampleModal').style.display = 'block';
+                });
+        }
+        
+        function refreshSampleTable() {
+            const tbody = document.getElementById('sampleTableBody');
+            tbody.innerHTML = '';
+            
+            sampleTemplates.forEach((template, index) => {
+                const row = document.createElement('tr');
+                row.className = 'sample-row';
+                row.onclick = () => selectSampleRow(row, index);
+                
+                row.innerHTML = `
+                    <td><input type="text" class="sample-input" value="${template.name || ''}" onchange="updateTemplate(${index}, 'name', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><input type="text" class="sample-input" value="${template.symbol || ''}" onchange="updateTemplate(${index}, 'symbol', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><select class="sample-input" onchange="updateTemplate(${index}, 'id_source', this.value)" onclick="event.stopPropagation()">
+                        <option value="1" ${(template.id_source || '5') === '1' ? 'selected' : ''}>1 (CUSIP)</option>
+                        <option value="2" ${(template.id_source || '5') === '2' ? 'selected' : ''}>2 (SEDOL)</option>
+                        <option value="4" ${(template.id_source || '5') === '4' ? 'selected' : ''}>4 (ISIN)</option>
+                        <option value="5" ${(template.id_source || '5') === '5' ? 'selected' : ''}>5 (RIC)</option>
+                        <option value="8" ${(template.id_source || '5') === '8' ? 'selected' : ''}>8 (Exchange Symbol)</option>
+                    </select></td>
+                    <td><input type="text" class="sample-input" value="${template.security_id || ''}" onchange="updateTemplate(${index}, 'security_id', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><input type="text" class="sample-input" value="${template.sender_sub_id || ''}" onchange="updateTemplate(${index}, 'sender_sub_id', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><input type="text" class="sample-input" value="${template.onbehalf_comp_id || ''}" onchange="updateTemplate(${index}, 'onbehalf_comp_id', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><input type="text" class="sample-input" value="${template.client_id || ''}" onchange="updateTemplate(${index}, 'client_id', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><input type="text" class="sample-input" value="${template.text || ''}" onchange="updateTemplate(${index}, 'text', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><input type="text" class="sample-input" value="${template.custom_tags || ''}" onchange="updateTemplate(${index}, 'custom_tags', this.value)" onclick="event.stopPropagation()"></td>
+                    <td><button class="btn btn-danger btn-small" onclick="deleteSampleRow(${index}); event.stopPropagation();">Delete</button></td>
+                `;
+                
+                tbody.appendChild(row);
+            });
+        }
+        
+        function selectSampleRow(rowElement, index) {
+            // Clear previous selection
+            document.querySelectorAll('.sample-row').forEach(row => row.classList.remove('selected'));
+            
+            // Select current row
+            rowElement.classList.add('selected');
+            selectedSampleRow = index;
+            console.log('Selected sample row:', index);
+        }
+        
+        function updateTemplate(index, field, value) {
+            if (sampleTemplates[index]) {
+                sampleTemplates[index][field] = value;
+            }
+        }
+        
+        function addSampleRow() {
+            const newTemplate = {
+                id: Date.now(),
+                name: 'New Template',
+                symbol: '',
+                id_source: '5',
+                security_id: '',
+                sender_sub_id: '',
+                onbehalf_comp_id: '',
+                client_id: '',
+                text: '',
+                custom_tags: ''
+            };
+            
+            sampleTemplates.push(newTemplate);
+            refreshSampleTable();
+        }
+        
+        function deleteSampleRow(index) {
+            if (confirm('Delete this template?')) {
+                sampleTemplates.splice(index, 1);
+                refreshSampleTable();
+                selectedSampleRow = null;
+            }
+        }
+        
+        function saveSampleTemplates() {
+            fetch('/api/sample_templates', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ templates: sampleTemplates })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    addLogMessage('Sample templates saved successfully');
+                } else {
+                    alert('Error saving templates: ' + data.message);
+                }
+            })
+            .catch(error => {
+                alert('Error saving templates: ' + error.message);
+            });
+        }
+        
+        function loadSelectedSample() {
+            if (selectedSampleRow === null || selectedSampleRow === undefined) {
+                alert('Please select a template to load');
+                return;
+            }
+            
+            const template = sampleTemplates[selectedSampleRow];
+            if (!template) {
+                alert('Selected template not found');
+                return;
+            }
+            
+            // Populate form with template data
+            document.getElementById('symbol').value = template.symbol || '';
+            document.getElementById('idsource').value = template.id_source || '5';
+            document.getElementById('secid').value = template.security_id || '';
+            document.getElementById('sendersubid').value = template.sender_sub_id || '';
+            document.getElementById('onbehalfofcompid').value = template.onbehalf_comp_id || '';
+            document.getElementById('clientid').value = template.client_id || '';
+            document.getElementById('text').value = template.text || '';
+            document.getElementById('customTags').value = template.custom_tags || '';
+            
+            // Set some default values
             document.getElementById('qty').value = '1000';
             document.getElementById('side').value = '1';
-            document.getElementById('symbol').value = 'AAPL';
             document.getElementById('orderType').value = '1';
-            document.getElementById('price').value = '';
-            document.getElementById('idsource').value = '5';
-            document.getElementById('secid').value = 'AAPL';
-            // document.getElementById('sendersubid').value = 'TRADER01';
-            // document.getElementById('clientid').value = 'CLIENT001';
-            // document.getElementById('text').value = 'Sample order';
             document.getElementById('tif').value = '0';
+            
+            closeSampleModal();
+            addLogMessage('Loaded sample template: ' + template.name);
+        }
+        
+        function closeSampleModal() {
+            document.getElementById('sampleModal').style.display = 'none';
+            selectedSampleRow = null;
         }
 
         function updateSessionStatus(message, type) {
@@ -1074,9 +1258,13 @@
         
         // Close modal when clicking outside
         window.onclick = function(event) {
-            const modal = document.getElementById('configModal');
-            if (event.target == modal) {
+            const configModal = document.getElementById('configModal');
+            const sampleModal = document.getElementById('sampleModal');
+            
+            if (event.target == configModal) {
                 closeConfigModal();
+            } else if (event.target == sampleModal) {
+                closeSampleModal();
             }
         }
 
